@@ -18,12 +18,6 @@ import argparse
 from MythTV import Recorded, Program, MythDB, VideoGrabber, Job, findfile
 from MythTV.ttvdb import tvdb_api, tvdb_exceptions
 
-#rec = Recorded((1063, '2017-08-20 20:00:00-06:00'))
-
-#input_file = '/media/user/TI10686800A/1063_20170821020000.ts'
-
-#out_file = '/media/user/TI10686800A/test/VFtest1.ts'
-
 
 class DictToNamespace(dict):
     """ convert a dictionary and any nested dictionaries to namespace"""
@@ -1427,20 +1421,21 @@ class Encoder:
             join_info = AVJoin(duration, frame_rate_list[0])
             run_encode(join_command, join_info)
             logging.info('Finished joining segments')
-            # ? remove files now or wait for temp cleanup?
-            #print(subprocess.list2cmdline(join_command))
+            # print(subprocess.list2cmdline(join_command))
+
         # Setup encoding parameters and create metadata file
         video_setup()
         audio_setup()
         metadata_setup()
+
         if self.settings.file.commethod == 'chapters':
             if self.settings.file.includesub:
                 logging.info('Start extracting Closed Captions')
-                #extract_closed_captions(self.temp_file, self.temp_dir)
+                extract_closed_captions(self.temp_file, self.temp_dir)
                 logging.info('Finished extracting Closed Captions')
                 subtitle_setup()
             logging.info('Start encoding')
-            #standard_transcode()
+            standard_transcode()
             self.output_file = '{}.{}'.format(self.output_file,
                                               self.settings.file.fileformat
                                               )
@@ -1448,17 +1443,17 @@ class Encoder:
             logging.debug('Output file: {}'.format(self.output_file))
         if self.settings.file.commethod == 'remove':
             logging.info('Start commercial removal')
-            #no_transcode_cut(self.temp_file)
+            no_transcode_cut(self.temp_file)
             logging.info('Finished commercial removal')
             self.temp_file = '{}.ts'.format(self.temp_file)
             logging.debug('Output file: {}'.format(self.output_file))
             if self.settings.file.includesub:
                 logging.info('Start extracting Closed Captions')
-            #    extract_closed_captions(self.temp_file, self.temp_dir)
+                extract_closed_captions(self.temp_file, self.temp_dir)
                 logging.info('Finished extracting Closed Captions')
                 subtitle_setup()
             logging.info('Start encoding')
-            #standard_transcode(input_file=self.temp_file)
+            standard_transcode(input_file=self.temp_file)
             self.output_file = '{}.{}'.format(self.output_file,
                                               self.settings.file.fileformat
                                               )
@@ -1466,7 +1461,7 @@ class Encoder:
             logging.debug('Output file: {}'.format(self.output_file))
         if self.settings.file.commethod == 'only-cut':
             logging.info('Start commercial removal')
-           # no_transcode_cut(self.output_file)
+            no_transcode_cut(self.output_file)
             self.output_file = '{}.ts'.format(self.output_file)
             logging.info('Finished commercial removal')
             logging.debug('Output file: {}'.format(self.output_file))
@@ -1493,8 +1488,7 @@ def run(jobid=None, chanid=None, starttime=None):
     logging.debug('DB recording entry={}'.format(rec))
     # Find and format full input file path
     sg = findfile('/{}'.format(rec.basename), rec.storagegroup, db=db)
-    #input_file = os.path.join(sg.dirname, rec.basename)
-    input_file = '/media/user/TI10686800A/1063_20170821020000.ts'
+    input_file = os.path.join(sg.dirname, rec.basename)
 
     rec_meta = RecordingToMetadata(rec, allow_search=settings.file.allowsearch)
     file_items = FileSetup(settings, metadata=rec_meta)
@@ -1524,11 +1518,10 @@ def run(jobid=None, chanid=None, starttime=None):
         export_item = '{}/'.format(os.path.dirname(input_file))
         print(encoder.output_file)
         print(export_item)
-        #update_recorded(rec, input_file, encoder.input_file)
+        update_recorded(rec, input_file, encoder.input_file)
     export_file(encoder.output_file, export_item)
     logging.info('Finished')
     sys.exit()
-#run(chanid='1063', starttime='2017-08-20 20:00:00-06:00')
 
 def main():
     parser = argparse.ArgumentParser(
