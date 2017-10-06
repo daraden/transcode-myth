@@ -1,4 +1,4 @@
-#!/usr/local/bin/python
+#!/usr/bin/env python2
 # -*- coding: UTF-8 -*-
 from __future__ import print_function, division
 import re
@@ -38,7 +38,7 @@ class DictToNamespace(dict):
                 self.__setattr__(str(k), v)
 
 
-config_dict = {'file': {'fileformat': 'mp4', 'logdir': '/tmp/',
+config_dict = {'file': {'fileformat': 'mp4', 'logdir': '/',
                         'exportdir': '/', 'fallbackdir': '/', 'saveold': 1,
                         'usecommflag': 0, 'tvdirstruct': 'folders',
                         'mvdirstruct': 'none', 'commethod': 'remove',
@@ -55,8 +55,8 @@ config_dict = {'file': {'fileformat': 'mp4', 'logdir': '/tmp/',
                          'bpcsd': 64, 'language': 'eng'
                          }
                }
-
-config_file = 'conf.json'
+conf_path = os.path.dirname(__file__)
+config_file = '{}/conf.json'.format(conf_path)
 
 
 class ConfigSetup:
@@ -72,7 +72,6 @@ class ConfigSetup:
         self.audio = None
         if not os.path.isfile(configuration_file):
             with open(configuration_file, 'wb') as conf_write:
-                #defaults = unidict(defaults)
                 json.dump(defaults, conf_write)
         config = {}
         config_out = {}
@@ -137,6 +136,8 @@ def write_check(path):
 
 # *** logging setup ***
 logdir = settings.file.logdir
+if logdir is '/':
+    logdir = settings.file.logdir
 logfile = '{}/transcode.log'.format(logdir)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -1330,7 +1331,6 @@ class Encoder:
                                                )
                                 )
             run_encode(base_command, self.av_info)
-            #print(subprocess.list2cmdline(base_command))
 
         def no_transcode_cut(output_file=self.output_file):
             """Cut commercials without transcoding using FFmpeg -segment"""
@@ -1364,7 +1364,6 @@ class Encoder:
                                 '{}cut%03d.ts'.format(self.temp_dir)
                                 ]
                                )
-            #print(subprocess.list2cmdline(cut_command))
             run_encode(cut_command, self.av_info)
             logging.info('segmenting video finished')
             # Join segment files in temp_dir.
@@ -1383,7 +1382,7 @@ class Encoder:
             join_command = [self.ffmpeg, '-y', '-i',
                             'concat:{}'.format(concat_string),
                             '-map', '0', '-c', 'copy', '-f', 'mpegts',
-                            '{}.{}'.format(self.output_file, 'ts')
+                            '{}.{}'.format(output_file, 'ts')
                             ]
             duration_list = []
             frame_rate_list = []
@@ -1443,7 +1442,7 @@ class Encoder:
             logging.debug('Output file: {}'.format(self.output_file))
         if self.settings.file.commethod == 'remove':
             logging.info('Start commercial removal')
-            no_transcode_cut(self.temp_file)
+            no_transcode_cut(output_file=self.temp_file)
             logging.info('Finished commercial removal')
             self.temp_file = '{}.ts'.format(self.temp_file)
             logging.debug('Output file: {}'.format(self.output_file))
@@ -1522,6 +1521,7 @@ def run(jobid=None, chanid=None, starttime=None):
     export_file(encoder.output_file, export_item)
     logging.info('Finished')
     sys.exit()
+
 
 def main():
     parser = argparse.ArgumentParser(

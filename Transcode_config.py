@@ -1,3 +1,5 @@
+#!/usr/bin/env python2
+# -*- coding: UTF-8 -*-
 from __future__ import print_function
 import json
 import os
@@ -91,9 +93,10 @@ class ConfigSetup:
     Load configuration file in json format. If no configuration file exists
     a defaults dictionary is used to create one
     """
-    config_file = 'conf.json'
+    conf_path = os.path.dirname(__file__)
+    config_file = '{}/conf.json'.format(conf_path)
 
-    defaults = {'file': {'fileformat': 'mp4', 'logdir': '/tmp/',
+    defaults = {'file': {'fileformat': 'mp4', 'logdir': '/',
                          'exportdir': '/', 'fallbackdir': '/', 'saveold': 1,
                          'usecommflag': 0, 'tvdirstruct': 'folders',
                          'mvdirstruct': 'none', 'commethod': 'remove',
