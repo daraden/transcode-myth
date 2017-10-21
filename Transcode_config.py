@@ -413,24 +413,25 @@ def av_opts(frame, deff):
     frame.crf_label.grid(row=3, column=0)
     frame.crf.grid(row=3, column=1, stick='e')
     frame.crf_var.set(settings.video['crf{}'.format(deff)])
+    # min/max bitrate still needs to be implameted
     # max bitrate items
-    frame.max_rate_label = Tk.Label(frame, text='video maximum bitrate')
-    frame.max_rate_var = Tk.StringVar()
-    frame.max_rate = Tk.Spinbox(frame, from_=0, to=10000,
-                                textvariable=frame.max_rate_var, width=6
-                                )
-    frame.max_rate_label.grid(row=4, column=0)
-    frame.max_rate.grid(row=4, column=1, stick='e')
-    frame.max_rate_var.set(settings.video['maxrate{}'.format(deff)])
+    #frame.max_rate_label = Tk.Label(frame, text='video maximum bitrate')
+    #frame.max_rate_var = Tk.StringVar()
+    #frame.max_rate = Tk.Spinbox(frame, from_=0, to=10000,
+    #                            textvariable=frame.max_rate_var, width=6
+    #                            )
+    #frame.max_rate_label.grid(row=4, column=0)
+    #frame.max_rate.grid(row=4, column=1, stick='e')
+    #frame.max_rate_var.set(settings.video['maxrate{}'.format(deff)])
     # min bitrate items
-    frame.min_rate_label = Tk.Label(frame, text='video minimum bitrate')
-    frame.min_rate_var = Tk.StringVar()
-    frame.min_rate = Tk.Spinbox(frame, from_=0, to=10000,
-                                textvariable=frame.min_rate_var, width=6
-                                )
-    frame.min_rate_label.grid(row=5, column=0)
-    frame.min_rate.grid(row=5, column=1, stick='e')
-    frame.min_rate_var.set(settings.video['minrate{}'.format(deff)])
+    #frame.min_rate_label = Tk.Label(frame, text='video minimum bitrate')
+    #frame.min_rate_var = Tk.StringVar()
+    #frame.min_rate = Tk.Spinbox(frame, from_=0, to=10000,
+    #                            textvariable=frame.min_rate_var, width=6
+    #                            )
+    #frame.min_rate_label.grid(row=5, column=0)
+    #frame.min_rate.grid(row=5, column=1, stick='e')
+    #frame.min_rate_var.set(settings.video['minrate{}'.format(deff)])
     # audio codec items
     frame.audio_codec_label = Tk.Label(frame, text='Audio Codec')
     frame.audio_codec_var = Tk.StringVar()

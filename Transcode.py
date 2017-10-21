@@ -1352,6 +1352,7 @@ class Encoder:
                     if self.settings.file.usecommflag:
                         cut_list = self.metadata.cutlists.skip_list
             if not cut_list:
+                logging.error('No cut-list found')
                 sys.exit(1)
             cut_list = [mark for cuts in cut_list for mark in cuts]
             if cut_list[0] == 0:
