@@ -93,7 +93,7 @@ class ConfigSetup:
     Load configuration file in json format. If no configuration file exists
     a defaults dictionary is used to create one
     """
-    conf_path = os.path.dirname(__file__)
+    conf_path = os.path.dirname(os.path.abspath(__file__))
     config_file = '{}/conf.json'.format(conf_path)
 
     defaults = {'file': {'fileformat': 'mp4', 'logdir': '/',
