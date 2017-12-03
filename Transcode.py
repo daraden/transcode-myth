@@ -55,7 +55,7 @@ config_dict = {'file': {'fileformat': 'mp4', 'logdir': '/',
                          'bpcsd': 64, 'language': 'eng'
                          }
                }
-conf_path = os.path.dirname(__file__)
+conf_path = os.path.dirname(os.path.abspath(__file__))
 config_file = '{}/conf.json'.format(conf_path)
 
 
@@ -125,6 +125,7 @@ def write_check(path):
     try:
         open(test_file, 'w')
     except IOError as e:
+        print('Path is not writable:{}'.format(path))
         if e.errno == errno.EACCES:
             return False
         else:
@@ -1469,6 +1470,47 @@ class Encoder:
         # Cleanup here?
         remove_temp(self.temp_dir)
 
+def find_rec(chanid, starttime):
+    def local_time_offset(t=None):
+        if t is None:
+            t = time.time()
+
+        if time.localtime(t).tm_isdst and time.daylight:
+            return -time.altzone
+        else:
+            return -time.timezone
+
+    def recorded_from_basename(chanid, starttime):
+        bnts = '{}_{}.ts'.format(chanid, starttime)
+        bnmpg = '{}_{}.mpg'.format(chanid, starttime)
+
+        x = list(db.searchRecorded(basename=bnmpg))
+        if len(x) == 1:
+            for recorded in x:
+                return recorded
+
+        if len(x) != 1:
+            x = list(db.searchRecorded(basename=bnts))
+            if len(x) == 1:
+                for recorded in x:
+                    return recorded
+            if len(x) != 1:
+                raise LookupError('unable to find Recorded entry for '
+                                  'ChanID {} StartTime {}'
+                                  .format(chanid, starttime)
+                                  )
+
+    try:
+        rec = Recorded((chanid, starttime), db=db)
+    except:
+        try:
+            tzoffset = local_time_offset() / (60 * 60)
+            utcstarttime = datetime.strptime(starttime, "%Y%m%d%H%M%S")
+            utcstarttime = utcstarttime + timedelta(hours=tzoffset)
+            rec = Recorded((chanid, utcstarttime), db=db)
+        except:
+            rec = recorded_from_basename(chanid, starttime)
+    return rec
 
 def run(jobid=None, chanid=None, starttime=None):
     logging.info('Started')
@@ -1484,7 +1526,7 @@ def run(jobid=None, chanid=None, starttime=None):
         starttime = starttime
         logging.debug('chanid={} starttime={}'.format(chanid, starttime))
     # Get database recording entry
-    rec = Recorded((chanid, starttime), db=db)
+    rec = find_rec(chanid, starttime)
     logging.debug('DB recording entry={}'.format(rec))
     # Find and format full input file path
     sg = findfile('/{}'.format(rec.basename), rec.storagegroup, db=db)
