@@ -88,12 +88,26 @@ def codec_check(ffmpeg):
     return available_video, available_audio
 
 
+def deinterlace_check(ffmpeg):
+    """Check for list of deinterlacers enabled in ffmpeg"""
+    command = [ffmpeg, '-filters']
+    run = subprocess.check_output(command)
+    deinterlacers = ['yadif', 'bwdif']
+    deinterlacer_list = ['none']
+    for line in run.rsplit('\n'):
+        for deint_filter in deinterlacers:
+            if deint_filter in line:
+                deinterlacer_list.append(deint_filter)
+    return deinterlacer_list
+
+
 class ConfigSetup:
     """
     Load configuration file in json format. If no configuration file exists
     a defaults dictionary is used to create one
     """
-    conf_path = os.path.dirname(__file__)
+    conf_path = os.path.dirname(os.path.abspath(__file__))
+    print(conf_path)
     config_file = '{}/conf.json'.format(conf_path)
 
     defaults = {'file': {'fileformat': 'mp4', 'logdir': '/',
@@ -119,6 +133,7 @@ class ConfigSetup:
         self.file = None
         self.video = None
         self.audio = None
+        print(self.config_file)
         if not os.path.isfile(self.config_file):
             with open(self.config_file, 'wb') as conf_write:
                 json.dump(self.defaults, conf_write)
@@ -187,6 +202,7 @@ ffmpeg = program_check('ffmpeg', 'mythffmpeg')
 
 # Lists of named parameters
 video_codecs, audio_codecs = codec_check(ffmpeg)
+deinterlacers = deinterlace_check(ffmpeg)
 fileformat = ['mp4', 'mkv']
 dirformat = ['none', 'folders']
 presets = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium',
@@ -413,7 +429,7 @@ def av_opts(frame, deff):
     frame.crf_label.grid(row=3, column=0)
     frame.crf.grid(row=3, column=1, stick='e')
     frame.crf_var.set(settings.video['crf{}'.format(deff)])
-    # min/max bitrate still needs to be implameted
+    # min/max bitrate still needs to be implemented
     # max bitrate items
     #frame.max_rate_label = Tk.Label(frame, text='video maximum bitrate')
     #frame.max_rate_var = Tk.StringVar()
@@ -432,14 +448,25 @@ def av_opts(frame, deff):
     #frame.min_rate_label.grid(row=5, column=0)
     #frame.min_rate.grid(row=5, column=1, stick='e')
     #frame.min_rate_var.set(settings.video['minrate{}'.format(deff)])
+    # video deinterlacer items
+    frame.deinterlacer_label = Tk.Label(frame, text='Deinterlacer')
+    frame.deinterlacer_var = Tk.StringVar()
+    frame.deinterlacer_var.set(settings.video['deinterlace{}'.format(deff)])
+
+    frame.deinterlacer = ttk.Combobox(frame, textvariable=frame.deinterlacer_var,
+                                     values=deinterlacers, width=10
+                                     )
+    frame.deinterlacer_label.grid(row=6, column=0)
+    frame.deinterlacer.grid(row=6, column=1, stick='e')
+
     # audio codec items
     frame.audio_codec_label = Tk.Label(frame, text='Audio Codec')
     frame.audio_codec_var = Tk.StringVar()
     frame.audio_codec = ttk.Combobox(frame, textvariable=frame.audio_codec_var,
                                      values=audio_codecs, width=10
                                      )
-    frame.audio_codec_label.grid(row=6, column=0)
-    frame.audio_codec.grid(row=6, column=1, stick='e')
+    frame.audio_codec_label.grid(row=7, column=0)
+    frame.audio_codec.grid(row=7, column=1, stick='e')
     frame.audio_codec_var.set(settings.audio['codec{}'.format(deff)])
     # audio bitrate items
     frame.bpc_label = Tk.Label(frame, text='Audio bitrate per Channel')
@@ -447,8 +474,8 @@ def av_opts(frame, deff):
     frame.bpc = Tk.Spinbox(frame, from_=32, to=128, textvariable=frame.bpc_var,
                            width=4
                            )
-    frame.bpc_label.grid(row=7, column=0)
-    frame.bpc.grid(row=7, column=1, stick='e')
+    frame.bpc_label.grid(row=8, column=0)
+    frame.bpc.grid(row=8, column=1, stick='e')
     frame.bpc_var.set(settings.audio['bpc{}'.format(deff)])
 
 file_options(frame0, 1)
@@ -482,10 +509,13 @@ def config_update():
     settings.video['presetsd'] = frame2.preset_var.get()
     settings.video['crfhd'] = int(frame1.crf.get())
     settings.video['crfsd'] = int(frame2.crf.get())
-    settings.video['maxratehd'] = int(frame1.max_rate.get())
-    settings.video['maxratesd'] = int(frame2.max_rate.get())
-    settings.video['minratehd'] = int(frame1.min_rate.get())
-    settings.video['minratesd'] = int(frame2.min_rate.get())
+    #settings.video['maxratehd'] = int(frame1.max_rate.get())
+    #settings.video['maxratesd'] = int(frame2.max_rate.get())
+    #settings.video['minratehd'] = int(frame1.min_rate.get())
+    #settings.video['minratesd'] = int(frame2.min_rate.get())
+    settings.video['deinterlacehd'] = frame1.deinterlacer_var.get()
+    settings.video['deinterlacesd'] = frame2.deinterlacer_var.get()
+
     settings.audio['language'] = frame0.file_frame.lang_var.get()
     settings.audio['codechd'] = frame1.audio_codec_var.get()
     settings.audio['codecsd'] = frame2.audio_codec_var.get()

@@ -44,6 +44,8 @@ see https://trac.ffmpeg.org/wiki/Encode/H.264 for info related to H.264 options
 * sets the H.264 encoding preset
 ## CRF
 * sets the H.264 crf value
+## Deinterlacer
+* Selects the type of de-interlacing
 ## Audio codec
 * selects audio codec for the output file
   * copy keeps the original unprocessed audio streams

@@ -12,7 +12,7 @@ from glob import glob
 import logging
 import logging.handlers
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import open
 import argparse
 from MythTV import Recorded, Program, MythDB, VideoGrabber, Job, findfile
@@ -55,7 +55,7 @@ config_dict = {'file': {'fileformat': 'mp4', 'logdir': '/',
                          'bpcsd': 64, 'language': 'eng'
                          }
                }
-conf_path = os.path.dirname(__file__)
+conf_path = os.path.dirname(os.path.abspath(__file__))
 config_file = '{}/conf.json'.format(conf_path)
 
 
@@ -71,8 +71,12 @@ class ConfigSetup:
         self.video = None
         self.audio = None
         if not os.path.isfile(configuration_file):
-            with open(configuration_file, 'wb') as conf_write:
-                json.dump(defaults, conf_write)
+            logging.error('Unable to locate configuration file. please run '
+                          'Transcode_config'
+                          )
+            sys.exit(1)
+            # with open(configuration_file, 'wb') as conf_write:
+            #    json.dump(defaults, conf_write)
         config = {}
         config_out = {}
         # Set config dict to values in config file
@@ -115,7 +119,6 @@ class ConfigSetup:
 
 settings = ConfigSetup(config_file, defaults=config_dict)
 
-
 def write_check(path):
     """Check if a directory is writeable if not return False."""
     import errno
@@ -125,6 +128,7 @@ def write_check(path):
     try:
         open(test_file, 'w')
     except IOError as e:
+        print('Path is not writable:{}'.format(path))
         if e.errno == errno.EACCES:
             return False
         else:
@@ -164,6 +168,9 @@ except Exception as e:
     logging.error(e)
     sys.exit(1)
 # *** logging setup end ***
+
+# Global job for status output
+job = None
 
 try:
     db = MythDB()
@@ -726,6 +733,49 @@ def get_movie(title, year=None):
         return {}
 
 
+def find_rec(chanid, starttime):
+    def local_time_offset(t=None):
+        if t is None:
+            t = time.time()
+
+        if time.localtime(t).tm_isdst and time.daylight:
+            return -time.altzone
+        else:
+            return -time.timezone
+
+    def recorded_from_basename(chanid, starttime):
+        bnts = '{}_{}.ts'.format(chanid, starttime)
+        bnmpg = '{}_{}.mpg'.format(chanid, starttime)
+
+        x = list(db.searchRecorded(basename=bnmpg))
+        if len(x) == 1:
+            for recorded in x:
+                return recorded
+
+        if len(x) != 1:
+            x = list(db.searchRecorded(basename=bnts))
+            if len(x) == 1:
+                for recorded in x:
+                    return recorded
+            if len(x) != 1:
+                raise LookupError('unable to find Recorded entry for '
+                                  'ChanID {} StartTime {}'
+                                  .format(chanid, starttime)
+                                  )
+
+    try:
+        rec = Recorded((chanid, starttime), db=db)
+    except:
+        try:
+            tzoffset = local_time_offset() / (60 * 60)
+            utcstarttime = datetime.strptime(starttime, "%Y%m%d%H%M%S")
+            utcstarttime = utcstarttime + timedelta(hours=tzoffset)
+            rec = Recorded((chanid, utcstarttime), db=db)
+        except:
+            rec = recorded_from_basename(chanid, starttime)
+    return rec
+
+
 class RecordingToMetadata:
     """
     Retrieve required metadata from the MythTV database
@@ -919,6 +969,7 @@ class Encoder:
         self.metadata = metadata
         self.metadata_file = None
         self.hd = False
+        self.deinterlacer = None
         self.map_count = 0
         self.subtitle_input = None
         self.subtitle_metadata = None
@@ -933,21 +984,48 @@ class Encoder:
         # Check directory access
         if not write_check(self.settings.file.fallbackdir):
             logging.error('Fallback directory is not writable')
+            if job:
+                job.upadate({'status': job.ERRORED,
+                             'comment': 'Fallback directory is not writable'
+                             }
+                            )
             sys.exit(1)
         if not write_check(self.settings.file.exportdir):
             if self.settings.file.export:
                 logging.error('Export directory is not writable')
+                if job:
+                    job.upadate({'status': job.ERRORED,
+                                 'comment': 'Export directory is not writable'
+                                 }
+                                )
                 sys.exit(1)
             else:
                 logging.warning('Export directory is not writable')
         temp_check(self.temp_dir)
 
+        def deinterlacer():
+            if self.hd:
+                deinterlace_method = self.settings.video.deinterlacehd
+                if (self.av_info.video.width == 1920
+                    and self.av_info.video.height == 1080
+                        and deinterlace_method is not 'none'):
+                        self.deinterlacer = ('{}=0:-1:1'
+                                             .format(deinterlace_method)
+                                             )
+            if not self.hd:
+                deinterlace_method = self.settings.video.deinterlacesd
+                if deinterlace_method is not 'none':
+                    self.deinterlacer = '{}=0:-1:1'.format(deinterlace_method)
+
         def video_setup():
             """Create self.video_config list for use by ffmpeg"""
-            self.video_config = ['-map', '0:0', '-filter:v', 'yadif=0:-1:1',
-                                 '-movflags', 'faststart', '-forced-idr', '1',
-                                 '-c:v'
-                                 ]
+            self.video_config = ['-map', '0:0']
+            if self.deinterlacer:
+                self.video_config.extend(['-filter:v', self.deinterlacer])
+            self.video_config.extend(['-movflags', 'faststart', '-forced-idr',
+                                      '1', '-c:v'
+                                      ]
+                                     )
             if self.hd:
                 self.video_config.extend((self.settings.video.codechd,
                                           '-preset:v',
@@ -1260,6 +1338,7 @@ class Encoder:
             frame_rate = avinfo.video.frame_rate
             duration = float(avinfo.duration)
             total_frames = duration * frame_rate
+            fps = 0
 
             with tempfile.TemporaryFile() as output:
                 process = subprocess.Popen(command, stdout=output,
@@ -1289,21 +1368,35 @@ class Encoder:
                             if item.startswith('frame='):
                                 framenum = int(item.replace('frame=', ''))
                                 # get fps to possibly implement into status
-                                # if item.startswith('fps='):
-                                # fps = float(item.replace('fps=', ''))
+                                if item.startswith('fps='):
+                                    fps = float(item.replace('fps=', ''))
                         if int(framenum) == 0:
                             pcomp = 0
                         else:
-                            # python 2 div
                             pcomp = 100 * (float(framenum)
                                            / float(total_frames)
                                            )
-                            # python 3 div
-                            # pcomp = 100 * (framenum / total_frames)
-                        # python 2 div
+                        if job:
+                            eta_string = 'Unknown'
+                            if fps != 0:
+                                eta = (((duration * frame_rate) - framenum)
+                                       / fps
+                                       )
+                                eta_string = (time.strftime('%H:%M:%S',
+                                                            time.gmtime(eta)
+                                                            )
+                                              )
+                            if fps == 0:
+                                eta_string = 'Unknown'
+                            progress_string = ('Encoding: {}% complete ETA: {}'
+                                               .format(pcomp, eta_string)
+                                               )
+                            job.update({'status': job.RUNNING,
+                                        'comment': progress_string
+                                        }
+                                       )
+
                         stat = int((float(pcomp) / float(100)) * statlen)
-                        # python 3 div
-                        # stat = int((int(pcomp) / 100) * statlen)
                         padlen = statlen - stat
                         status = "|{:6.2f}%|".format(pcomp)
                         statusbar = '|{}{}|'.format(statchar * stat,
@@ -1424,6 +1517,7 @@ class Encoder:
             # print(subprocess.list2cmdline(join_command))
 
         # Setup encoding parameters and create metadata file
+        deinterlacer()
         video_setup()
         audio_setup()
         metadata_setup()
@@ -1473,7 +1567,6 @@ class Encoder:
 def run(jobid=None, chanid=None, starttime=None):
     logging.info('Started')
     # Configure chanid and starttime from userjob input
-    job = None
     if jobid:
         job = Job(jobid, db=db)
         chanid = job.chanid
@@ -1484,7 +1577,8 @@ def run(jobid=None, chanid=None, starttime=None):
         starttime = starttime
         logging.debug('chanid={} starttime={}'.format(chanid, starttime))
     # Get database recording entry
-    rec = Recorded((chanid, starttime), db=db)
+    # rec = Recorded((chanid, starttime), db=db)
+    rec = find_rec(chanid, starttime)
     logging.debug('DB recording entry={}'.format(rec))
     # Find and format full input file path
     sg = findfile('/{}'.format(rec.basename), rec.storagegroup, db=db)
@@ -1518,7 +1612,8 @@ def run(jobid=None, chanid=None, starttime=None):
         export_item = '{}/'.format(os.path.dirname(input_file))
         print(encoder.output_file)
         print(export_item)
-        update_recorded(rec, input_file, encoder.input_file)
+        update_recorded(rec, input_file, encoder.output_file)
+
     export_file(encoder.output_file, export_item)
     logging.info('Finished')
     sys.exit()
@@ -1526,7 +1621,7 @@ def run(jobid=None, chanid=None, starttime=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='MythTV Commercial removal tool.')
+        description='MythTV Transcode and Commercial removal tool.')
     parser.add_argument('--chanid', action='store', type=str, dest='chanid',
                         help='Channel-Id of Recording'
                         )
@@ -1539,6 +1634,8 @@ def main():
                         )
     args = parser.parse_args()
     if args.jobid:
+        global job
+        job = Job(args.jobid, db=db)
         run(jobid=args.jobid)
         sys.exit(0)
     if args.chanid and args.starttime:
