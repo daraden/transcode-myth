@@ -119,6 +119,7 @@ class ConfigSetup:
 
 settings = ConfigSetup(config_file, defaults=config_dict)
 
+
 def write_check(path):
     """Check if a directory is writeable if not return False."""
     import errno
@@ -457,7 +458,7 @@ def export_file(input_file, output_dir):
         logging.info('Creating export directory')
         os.makedirs(output_dir)
     if os.path.isdir(output_dir):
-        logging.info('Copying file to export directory')
+        logging.info('Copying file to destination directory')
         shutil.copyfile(input_file, output_file)
         logging.info('Start hash verification')
         successful_transfer = comp_hash(input_file, output_file)
@@ -747,31 +748,37 @@ def find_rec(chanid, starttime):
         bnts = '{}_{}.ts'.format(chanid, starttime)
         bnmpg = '{}_{}.mpg'.format(chanid, starttime)
 
-        x = list(db.searchRecorded(basename=bnmpg))
+        x = list(db.searchRecorded(basename=bnts))
         if len(x) == 1:
             for recorded in x:
                 return recorded
 
         if len(x) != 1:
-            x = list(db.searchRecorded(basename=bnts))
+            x = list(db.searchRecorded(basename=bnmpg))
             if len(x) == 1:
                 for recorded in x:
                     return recorded
             if len(x) != 1:
                 raise LookupError('unable to find Recorded entry for '
-                                  'ChanID {} StartTime {}'
+                                  'ChanID {} StartTime {} using basename search'
                                   .format(chanid, starttime)
                                   )
 
     try:
         rec = Recorded((chanid, starttime), db=db)
-    except:
+    except Exception:
+        logging.error('Error retreiving recording info using chanid: {}'
+                      'starttime: {} using MythTV Recorded class')
         try:
+            logging.info('Atemptting to reformat starttime')
             tzoffset = local_time_offset() / (60 * 60)
             utcstarttime = datetime.strptime(starttime, "%Y%m%d%H%M%S")
             utcstarttime = utcstarttime + timedelta(hours=tzoffset)
             rec = Recorded((chanid, utcstarttime), db=db)
-        except:
+        except Exception:
+            logging.error('Error retreiving recording info using chanid: {}'
+                          'starttime: {} using reformated starttime')
+            logging.info('Atempting filename search for recording entry')
             rec = recorded_from_basename(chanid, starttime)
     return rec
 
@@ -894,6 +901,7 @@ def update_recorded(rec, input_file, output_file):
                  )
     logging.debug('chanid={} starttime={}'.format(chanid, starttime))
     try:
+        logging.info('Clearing cut-list')
         subprocess.call(['mythutil', '--chanid', str(chanid), '--starttime',
                          str(starttime), '--clearcutlist'
                          ]
@@ -901,6 +909,7 @@ def update_recorded(rec, input_file, output_file):
     except Exception as e:
         logging.error('Mythutil exception clearing cut-list: {}'.format(e))
     try:
+        logging.info('Clearing skip-list')
         subprocess.call(['mythutil', '--chanid', str(chanid), '--starttime',
                          str(starttime), '--clearskiplist'
                          ]
@@ -943,7 +952,7 @@ def update_recorded(rec, input_file, output_file):
                          ]
                         )
     except Exception as e:
-        logging.error('Mythcommflag ERROR clearing skip-list:{}'.format(e))
+        logging.error('Mythcommflag ERROR rebuilding seek-table: {}'.format(e))
         pass
 
 
@@ -1281,6 +1290,13 @@ class Encoder:
                         # stat = int((int(pcomp) / 100) * statlen)
                         padlen = statlen - stat
                         status = "|{:6.2f}%|".format(pcomp)
+                        if job:
+                            job.update({'status': job.RUNNING,
+                                        'comment': 'Extracting Closed Captions '
+                                                   '{}'.format(status)
+                                        }
+                                       )
+
                         statusbar = '|{}{}|'.format(statchar * stat,
                                                     pad * padlen
                                                     )
@@ -1325,10 +1341,10 @@ class Encoder:
                     elif fileformat == 'mp4':
                         self.subtitle_input.extend(['-c:s', 'mov_text'])
 
-        def run_encode(command, avinfo):
+        def run_encode(command, avinfo, prefix='Encoding'):
             """ Run ffmpeg command with status output"""
             # Length of progress bar
-            statlen = 10
+            statlen = 9 + len(prefix)
             # Character used for progress bar
             # Use chr() in python 3
             statchar = unichr(9619).encode('UTF-8')
@@ -1338,13 +1354,13 @@ class Encoder:
             frame_rate = avinfo.video.frame_rate
             duration = float(avinfo.duration)
             total_frames = duration * frame_rate
-            fps = 0
 
             with tempfile.TemporaryFile() as output:
                 process = subprocess.Popen(command, stdout=output,
                                            stderr=output,
                                            universal_newlines=True
                                            )
+                framenum = 0
 
                 while True:
                     if process.poll() is not None:
@@ -1361,44 +1377,52 @@ class Encoder:
                     if not lines:
                         time.sleep(0.1)
                         output.seek(where)
-                    elif lines.startswith('frame='):
+                    if lines.startswith('frame='):
                         ln = ' '.join(lines.split()).replace('= ', '=').split(
                             ' ')
                         for item in ln:
                             if item.startswith('frame='):
                                 framenum = int(item.replace('frame=', ''))
-                                # get fps to possibly implement into status
+                                # get fps
                                 if item.startswith('fps='):
                                     fps = float(item.replace('fps=', ''))
-                        if int(framenum) == 0:
-                            pcomp = 0
-                        else:
-                            pcomp = 100 * (float(framenum)
-                                           / float(total_frames)
+                    else:
+                        fps = 0
+
+                    if int(framenum) == 0:
+                        pcomp = 0
+                    else:
+                        pcomp = int(100 * (float(framenum)
+                                           / float(total_frames))
+                                    )
+                    if fps > 0:
+                        eta = ((float(total_frames) - framenum)
+                               / fps
+                               )
+                        eta_string = (time.strftime('%H:%M:%S',
+                                                    time.gmtime(eta)
+                                                    )
+                                      )
+
+                    else:
+                        eta_string = 'Unknown'
+
+                    if job:
+                        progress_string = ('{}: {}% complete ETA: {}'
+                                           .format(prefix, pcomp,
+                                                   eta_string
+                                                   )
                                            )
-                        if job:
-                            eta_string = 'Unknown'
-                            if fps != 0:
-                                eta = (((duration * frame_rate) - framenum)
-                                       / fps
-                                       )
-                                eta_string = (time.strftime('%H:%M:%S',
-                                                            time.gmtime(eta)
-                                                            )
-                                              )
-                            if fps == 0:
-                                eta_string = 'Unknown'
-                            progress_string = ('Encoding: {}% complete ETA: {}'
-                                               .format(pcomp, eta_string)
-                                               )
-                            job.update({'status': job.RUNNING,
-                                        'comment': progress_string
-                                        }
-                                       )
+                        job.update({'status': job.RUNNING,
+                                    'comment': progress_string
+                                    }
+                                   )
 
                         stat = int((float(pcomp) / float(100)) * statlen)
                         padlen = statlen - stat
-                        status = "|{:6.2f}%|".format(pcomp)
+                        status = "|{}|{:6.2f}%| ETA: {}".format(prefix, pcomp,
+                                                                eta_string
+                                                                )
                         statusbar = '|{}{}|'.format(statchar * stat,
                                                     pad * padlen)
                         status = '\r{}{}'.format(status, statusbar)
@@ -1458,7 +1482,7 @@ class Encoder:
                                 '{}cut%03d.ts'.format(self.temp_dir)
                                 ]
                                )
-            run_encode(cut_command, self.av_info)
+            run_encode(cut_command, self.av_info, prefix='Segmenting')
             logging.info('segmenting video finished')
             # Join segment files in temp_dir.
             #  using cut_start to determine start/step of the files to be joined
@@ -1512,7 +1536,7 @@ class Encoder:
                     self.video = DictToNamespace({'frame_rate': frame_rate})
 
             join_info = AVJoin(duration, frame_rate_list[0])
-            run_encode(join_command, join_info)
+            run_encode(join_command, join_info, prefix='Joining segments')
             logging.info('Finished joining segments')
             # print(subprocess.list2cmdline(join_command))
 
@@ -1555,6 +1579,7 @@ class Encoder:
             logging.debug('Output file: {}'.format(self.output_file))
         if self.settings.file.commethod == 'only-cut':
             logging.info('Start commercial removal')
+            self.settings.file.fileformat = '.ts'
             no_transcode_cut(self.output_file)
             self.output_file = '{}.ts'.format(self.output_file)
             logging.info('Finished commercial removal')
@@ -1568,7 +1593,7 @@ def run(jobid=None, chanid=None, starttime=None):
     logging.info('Started')
     # Configure chanid and starttime from userjob input
     if jobid:
-        job = Job(jobid, db=db)
+        logging.debug('Jobid: {}'.format(jobid))
         chanid = job.chanid
         starttime = job.starttime
         logging.debug('chanid={} starttime={}'.format(chanid, starttime))
@@ -1577,20 +1602,29 @@ def run(jobid=None, chanid=None, starttime=None):
         starttime = starttime
         logging.debug('chanid={} starttime={}'.format(chanid, starttime))
     # Get database recording entry
-    # rec = Recorded((chanid, starttime), db=db)
     rec = find_rec(chanid, starttime)
     logging.debug('DB recording entry={}'.format(rec))
     # Find and format full input file path
     sg = findfile('/{}'.format(rec.basename), rec.storagegroup, db=db)
     input_file = os.path.join(sg.dirname, rec.basename)
 
+    if settings.file.saveold and not settings.file.export:
+        if not os.path.isfile('{}.old'.format(input_file)):
+            logging.info('Copying file to {}.old'.format(input_file))
+            shutil.copyfile(input_file, '{}.old'.format(input_file))
+            logging.info('Finished copying file')
+        else:
+            logging.info('.old copy of file exists skiping file copy')
+
     rec_meta = RecordingToMetadata(rec, allow_search=settings.file.allowsearch)
     file_items = FileSetup(settings, metadata=rec_meta)
     if settings.file.export:
         out_file = '{}{}'.format(settings.file.fallbackdir, file_items.filename)
     if not settings.file.export:
-        out_file = input_file.split('.', -1)[0]
-
+        out_file = '{}{}'.format(settings.file.fallbackdir,
+                                 os.path.basename(input_file.rsplit('.', 1)[0])
+                                 )
+    logging.debug('Fallback file: {}'.format(out_file))
     encoder = Encoder(input_file, out_file, settings=settings,
                       metadata=rec_meta
                       )
@@ -1606,15 +1640,23 @@ def run(jobid=None, chanid=None, starttime=None):
         export_item = '{}{}'.format(settings.file.exportdir,
                                     file_items.directory
                                     )
-        print(encoder.output_file)
-        print(export_item)
+        logging.debug('{}'.format(encoder.output_file))
+        logging.debug('{}'.format(export_item))
     if not settings.file.export:
-        export_item = '{}/'.format(os.path.dirname(input_file))
-        print(encoder.output_file)
-        print(export_item)
-        update_recorded(rec, input_file, encoder.output_file)
+        export_item = '{}/'.format(os.path.dirname(os.path.abspath(input_file)))
+        logging.debug('{}'.format(encoder.output_file))
+        logging.debug('{}'.format(export_item))
 
     export_file(encoder.output_file, export_item)
+
+    if not settings.file.export:
+        update_recorded(rec, input_file, input_file)
+
+    if job:
+        job.update({'status': job.FINISHED,
+                    'comment': 'FINISHED'
+                    }
+                   )
     logging.info('Finished')
     sys.exit()
 
@@ -1643,5 +1685,6 @@ def main():
         sys.exit(0)
     else:
         print('chanid and starttime or jobid required')
+
 
 main()
